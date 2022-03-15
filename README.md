@@ -16,6 +16,7 @@
     + [Why not Algo?](#why-not-algo)
 
 ## What?
+:)
 
 A Bash script that takes Ubuntu Server 20.04 LTS or 18.04 LTS from clean install to production-ready IKEv2 VPN with strongSwan. Comments and pull requests welcome. It may still work on 17.10, 17.04 or 16.10 if you remove the version check, but these are not tested.
 
