@@ -1,8 +1,8 @@
 #!/bin/bash -e
 
 # github.com/jawj/IKEv2-setup
-# Copyright (c) 2015 – 2020 George MacKerron
-# Released under the MIT licence: http://opensource.org/licenses/mit-license
+# Copyright (c) 2015 – 2021 George MacKerron
+# Released under the MIT licence: http://opensource.org/licenses/mit-license
 
 echo
 echo "=== https://github.com/jawj/IKEv2-setup ==="
@@ -38,7 +38,7 @@ echo
 echo "--- Configuration: VPN settings ---"
 echo
 
-ETH0ORSIMILAR=$(ip route get 1.1.1.1 | awk -- '{printf $5}')
+ETH0ORSIMILAR=$(ip route get 1.1.1.1 | grep -oP ' dev \K\S+')
 IP=$(dig -4 +short myip.opendns.com @resolver1.opendns.com)
 
 echo "Network interface: ${ETH0ORSIMILAR}"
@@ -58,12 +58,12 @@ fi
 
 read -r -p "VPN username: " VPNUSERNAME
 while true; do
-read -r -s -p "VPN password (no quotes, please): " VPNPASSWORD
-echo
-read -r -s -p "Confirm VPN password: " VPNPASSWORD2
-echo
-[[ "${VPNPASSWORD}" = "${VPNPASSWORD2}" ]] && break
-echo "Passwords didn't match -- please try again"
+  read -r -s -p "VPN password (no quotes, please): " VPNPASSWORD
+  echo
+  read -r -s -p "Confirm VPN password: " VPNPASSWORD2
+  echo
+  [[ "${VPNPASSWORD}" = "${VPNPASSWORD2}" ]] && break
+  echo "Passwords didn't match -- please try again"
 done
 
 echo '
@@ -82,8 +82,8 @@ Public DNS servers include:
 77.88.8.7,77.88.8.3              Yandex Family         https://dns.yandex.com
 '
 
-read -r -p "DNS servers for VPN users (default: 1.1.1.1,1.0.0.1): " VPNDNS
-VPNDNS=${VPNDNS:-'1.1.1.1,1.0.0.1'}
+read -r -p "DNS servers for VPN users (default: 8.8.8.8,8.8.4.4): " VPNDNS
+VPNDNS=${VPNDNS:-'8.8.8.8,8.8.4.4'}
 
 
 echo
@@ -97,28 +97,6 @@ read -r -p "Email address for sysadmin (e.g. j.bloggs@example.com): " EMAILADDR
 
 read -r -p "Desired SSH log-in port (default: 22): " SSHPORT
 SSHPORT=${SSHPORT:-22}
-
-read -r -p "New SSH log-in user name: " LOGINUSERNAME
-
-CERTLOGIN="n"
-if [[ -s /root/.ssh/authorized_keys ]]; then
-  while true; do
-    read -r -p "Copy /root/.ssh/authorized_keys to new user and disable SSH password log-in [Y/n]? " CERTLOGIN
-    [[ ${CERTLOGIN,,} =~ ^(y(es)?)?$ ]] && CERTLOGIN=y
-    [[ ${CERTLOGIN,,} =~ ^no?$ ]] && CERTLOGIN=n
-    [[ $CERTLOGIN =~ ^(y|n)$ ]] && break
-  done
-fi
-
-while true; do
-  [[ ${CERTLOGIN} = "y" ]] && read -r -s -p "New SSH user's password (e.g. for sudo): " LOGINPASSWORD
-  [[ ${CERTLOGIN} != "y" ]] && read -r -s -p "New SSH user's log-in password (must be REALLY STRONG): " LOGINPASSWORD
-  echo
-  read -r -s -p "Confirm new SSH user's password: " LOGINPASSWORD2
-  echo
-  [[ "${LOGINPASSWORD}" = "${LOGINPASSWORD2}" ]] && break
-  echo "Passwords didn't match -- please try again"
-done
 
 VPNIPPOOL="10.101.0.0/16"
 
@@ -289,48 +267,6 @@ ${VPNUSERNAME} : EAP \"${VPNPASSWORD}\"
 
 ipsec restart
 
-
-echo
-echo "--- User ---"
-echo
-
-# user + SSH
-
-id -u "${LOGINUSERNAME}" &>/dev/null || adduser --disabled-password --gecos "" "${LOGINUSERNAME}"
-echo "${LOGINUSERNAME}:${LOGINPASSWORD}" | chpasswd
-adduser "${LOGINUSERNAME}" sudo
-
-sed -r \
--e "s/^#?Port 22$/Port ${SSHPORT}/" \
--e 's/^#?LoginGraceTime (120|2m)$/LoginGraceTime 30/' \
--e 's/^#?PermitRootLogin yes$/PermitRootLogin no/' \
--e 's/^#?X11Forwarding yes$/X11Forwarding no/' \
--e 's/^#?UsePAM yes$/UsePAM no/' \
--i.original /etc/ssh/sshd_config
-
-grep -Fq 'jawj/IKEv2-setup' /etc/ssh/sshd_config || echo "
-# https://github.com/jawj/IKEv2-setup
-MaxStartups 1
-MaxAuthTries 2
-UseDNS no" >> /etc/ssh/sshd_config
-
-if [[ $CERTLOGIN = "y" ]]; then
-  mkdir -p "/home/${LOGINUSERNAME}/.ssh"
-  chown "${LOGINUSERNAME}" "/home/${LOGINUSERNAME}/.ssh"
-  chmod 700 "/home/${LOGINUSERNAME}/.ssh"
-
-  cp "/root/.ssh/authorized_keys" "/home/${LOGINUSERNAME}/.ssh/authorized_keys"
-  chown "${LOGINUSERNAME}" "/home/${LOGINUSERNAME}/.ssh/authorized_keys"
-  chmod 600 "/home/${LOGINUSERNAME}/.ssh/authorized_keys"
-
-  sed -r \
-  -e "s/^#?PasswordAuthentication yes$/PasswordAuthentication no/" \
-  -i.allows_pwd /etc/ssh/sshd_config
-fi
-
-service ssh restart
-
-
 echo
 echo "--- Timezone, mail, unattended upgrades ---"
 echo
@@ -344,13 +280,6 @@ sed -r \
 -e 's/^inet_interfaces =.*$/inet_interfaces = loopback-only/' \
 -i.original /etc/postfix/main.cf
 
-grep -Fq 'jawj/IKEv2-setup' /etc/aliases || echo "
-# https://github.com/jawj/IKEv2-setup
-root: ${EMAILADDR}
-${LOGINUSERNAME}: ${EMAILADDR}
-" >> /etc/aliases
-
-newaliases
 service postfix restart
 
 
@@ -374,7 +303,7 @@ echo
 echo "--- Creating configuration files ---"
 echo
 
-cd "/home/${LOGINUSERNAME}"
+cd "~"
 
 cat << EOF > vpn-ios-or-mac.mobileconfig
 <?xml version='1.0' encoding='UTF-8'?>
@@ -517,7 +446,7 @@ done
 apt-get install -y strongswan libstrongswan-standard-plugins libcharon-extra-plugins
 apt-get install -y libcharon-standard-plugins || true  # 17.04+ only
 
-ln -f -s /etc/ssl/certs/DST_Root_CA_X3.pem /etc/ipsec.d/cacerts/
+ln -f -s /etc/ssl/certs/ISRG_Root_X1.pem /etc/ipsec.d/cacerts/
 
 grep -Fq 'jawj/IKEv2-setup' /etc/ipsec.conf || echo "
 # https://github.com/jawj/IKEv2-setup
@@ -527,8 +456,8 @@ conn ikev2vpn
         rekeymargin=3m
         keyingtries=1
         keyexchange=ikev2
-        ike=aes256gcm16-prfsha384-ecp384!
-        esp=aes256gcm16-ecp384!
+        ike=aes256-sha256-modp2048
+        esp=aes256-sha256
         leftsourceip=%config
         leftauth=eap-mschapv2
         eap_identity=\${VPNUSERNAME}
@@ -573,6 +502,9 @@ A configuration profile is attached as vpn-ios-or-mac.mobileconfig — simply op
 
 You will need Windows 10 Pro or above. Please run the following commands in PowerShell:
 
+$Response = Invoke-WebRequest -UseBasicParsing -Uri https://valid-isrgrootx1.letsencrypt.org
+# ^ this line fixes a certificate lazy-loading bug: see https://github.com/jawj/IKEv2-setup/issues/126
+
 Add-VpnConnection -Name "${VPNHOST}" \`
   -ServerAddress "${VPNHOST}" \`
   -TunnelType IKEv2 \`
@@ -596,6 +528,7 @@ Set-VpnConnection -Name "${VPNHOST}" -SplitTunneling \$True
 
 You will need to enter your chosen VPN username and password in order to connect.
 
+
 == Android ==
 
 Download the strongSwan app from the Play Store: https://play.google.com/store/apps/details?id=org.strongswan.android
@@ -612,13 +545,4 @@ A bash script to set up strongSwan as a VPN client is attached as vpn-ubuntu-cli
 EOF
 
 EMAIL=$USER@$VPNHOST mutt -s "VPN configuration" -a vpn-ios-or-mac.mobileconfig vpn-android.sswan vpn-ubuntu-client.sh -- "${EMAILADDR}" < vpn-instructions.txt
-
-echo
-echo "--- How to connect ---"
-echo
-echo "Connection instructions have been emailed to you, and can also be found in your home directory, /home/${LOGINUSERNAME}"
-
-# necessary for IKEv2?
-# Windows: https://support.microsoft.com/en-us/kb/926179
-# HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\PolicyAgent += AssumeUDPEncapsulationContextOnSendRule, DWORD = 2
 
